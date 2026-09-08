@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Открытка</title>
+<style>
+/* ============================================================
+   ТОКЕНЫ
+   ============================================================ */
+:root{
+  --bg-1:#efe9e6;
+  --bg-2:#e2dade;
+  --paper:#fcfaf7;
+  --paper-cover:#f7f2ee;
+  --ink:#4a4144;
+  --ink-soft:#9b8f92;
+
+  /* геометрия — считается в JS под экран телефона */
+  --half-w: 260px;   /* половина разворота = размер закрытой открытки */
+  --card-h: 377px;
+
+  /* состояние — пишется из JS */
+  --angle: 180deg;   /* 180 = закрыта, 0 = раскрыта */
+  --open: 0;         /* 0..1 */
+  --shift: 0px;
+  --scale: 1;
+  --bend: 0deg;
+  --lift: 0px;
+
+  --fibers:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.05'/%3E%3C/svg%3E"),
+    linear-gradient(102deg, rgba(0,0,0,.018) 0 1px, transparent 1px 7px),
+    radial-gradient(120% 90% at 30% 15%, rgba(255,255,255,.9), rgba(226,214,207,.35));
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+
+html,body{
+  height:100%;
+  overflow:hidden;
+  overscroll-behavior:none;
+  position:fixed;
+  inset:0;
+}
+body{
+  background:
+    radial-gradient(120% 90% at 50% 8%, #f6f1ee 0%, transparent 60%),
+    linear-gradient(160deg, var(--bg-1) 0%, var(--bg-2) 100%);
+  color:var(--ink);
+  font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  -webkit-tap-highlight-color:transparent;
+  -webkit-touch-callout:none;
+  -webkit-user-select:none;
+  user-select:none;
+  touch-action:none;
+}
+body::after{
+  content:"";
+  position:fixed; inset:0; pointer-events:none;
+  background:radial-gradient(75% 60% at 50% 45%, transparent 55%, rgba(90,70,75,.13) 100%);
+}
+
+/* ============================================================
+   СЦЕНА — строго по центру экрана
+   ============================================================ */
+.viewport{
+  position:fixed;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.zoom{
+  transform: scale(var(--scale));
+  transform-origin: 50% 50%;
+  will-change: transform;
+}
+.stage{
+  position:relative;
+  width: calc(var(--half-w) * 2);
+  height: var(--card-h);
+  perspective: 1700px;
+  perspective-origin: 50% 45%;
+  touch-action:none;
+}
+.stage:focus-visible{outline:2px solid #b98d94; outline-offset:20px; border-radius:6px}
+
+.table-shadow{
+  position:absolute;
+  top:50%; left:50%;
+  width: calc(var(--half-w) * (1 + var(--open)));
+  height: calc(var(--card-h) * .82);
+  transform: translate(-50%,-42%) translateX(var(--shift)) translateY(calc(var(--card-h) * .12));
+  background: radial-gradient(50% 50% at 50% 50%, rgba(74,55,60,.30), rgba(74,55,60,0) 72%);
+  filter: blur(calc(10px + var(--open) * 8px));
+  opacity: calc(.75 - var(--open) * .22);
+}
+
+/* ============================================================
+   ОТКРЫТКА  —  сгиб слева, лист откидывается влево
+   ============================================================ */
+.card{
+  position:absolute;
+  inset:0;
+  transform-style:preserve-3d;
+  transform: translateX(var(--shift)) translateY(var(--lift)) rotateX(3deg);
+}
+
+.paper{
+  position:absolute;
+  top:0; height:100%;
+  width: var(--half-w);
+  background-color: var(--paper);
+  background-image: var(--fibers);
+  border-radius:2px;
+  overflow:hidden;
+}
+
+/* неподвижная правая страница */
+.right-page{
+  left: var(--half-w);
+  box-shadow: 0 10px 22px rgba(74,55,60,.14);
+}
+
+/* откидной лист — левая половина, петля по правому краю */
+.leaf{
+  position:absolute;
+  top:0; left:0;
+  width: var(--half-w);
+  height:100%;
+  transform-origin: right center;
+  transform: rotateY(var(--angle)) translateZ(.2px);
+  transform-style:preserve-3d;
+  will-change: transform;
+}
+.leaf-inner{
+  position:absolute; inset:0;
+  transform-origin: 65% center;
+  transform: rotateY(var(--bend));
+  transform-style:preserve-3d;
+}
+
+.face{
+  position:absolute; inset:0;
+  width:100%;
+  backface-visibility:hidden;
+  -webkit-backface-visibility:hidden;
+}
+.face--inner{ transform: translateZ(.3px); }
+.face--cover{
+  transform: rotateY(180deg) translateZ(.3px);
+  background-color: var(--paper-cover);
+  box-shadow: 0 14px 30px rgba(74,55,60,.20);
+}
+
+/* ---- светотень ---------------------------------------------------- */
+.sheen{position:absolute; inset:0; pointer-events:none}
+
+/* тень в сгибе: на правой странице — у левого края */
+.gutter-right{
+  background: linear-gradient(90deg, rgba(74,55,60,.22), rgba(74,55,60,.05) 12%, transparent 26%);
+  opacity: var(--open);
+}
+/* на левой (откидной) странице — у правого края */
+.gutter-left{
+  background: linear-gradient(270deg, rgba(74,55,60,.20), rgba(74,55,60,.04) 12%, transparent 26%);
+  opacity: var(--open);
+}
+/* тень закрытого листа, падающая на правую страницу */
+.cast{
+  background: linear-gradient(80deg, rgba(74,55,60,.34), rgba(74,55,60,0) 55%);
+  opacity: calc(1 - var(--open));
+}
+.glare{
+  background: linear-gradient(260deg, rgba(255,255,255,.55), rgba(255,255,255,0) 45%);
+  opacity: calc(var(--open) * .85);
+  mix-blend-mode:screen;
+}
+.edge{
+  box-shadow:
+    inset 0 0 0 1px rgba(120,100,105,.10),
+    inset 0 -14px 22px -18px rgba(74,55,60,.5),
+    inset 0 14px 22px -18px rgba(74,55,60,.35);
+}
+
+.fold{
+  position:absolute; top:0; left: var(--half-w);
+  width:1px; height:100%;
+  background: linear-gradient(180deg, transparent, rgba(74,55,60,.18) 12%, rgba(74,55,60,.18) 88%, transparent);
+  opacity: var(--open);
+  transform: translateZ(.4px);
+  pointer-events:none;
+}
+
+/* ============================================================
+   МЕСТО ПОД СОДЕРЖИМОЕ
+   ============================================================ */
+.slot{
+  position:absolute; inset:0;
+  display:grid; place-items:center;
+  padding:9%;
+  text-align:center;
+}
+
+/* ============================================================
+   ПОДСКАЗКА
+   ============================================================ */
+.hint{
+  position:fixed;
+  left:0; right:0;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 26px);
+  text-align:center;
+  font-size:13px;
+  letter-spacing:.06em;
+  color:var(--ink-soft);
+  transition:opacity .6s ease;
+  pointer-events:none;
+}
+.hint.gone{opacity:0}
+</style>
+</head>
+<body>
+
+<div class="viewport">
+  <div class="zoom">
+    <div class="stage" id="stage" tabindex="0" role="button" aria-label="Открыть открытку">
+      <div class="table-shadow"></div>
+
+      <div class="card" id="card">
+
+        <!-- НЕПОДВИЖНАЯ ПРАВАЯ СТРАНИЦА -->
+        <div class="paper right-page">
+          <div class="slot" id="slot-right"><!-- содержимое правой страницы --></div>
+          <div class="sheen edge"></div>
+          <div class="sheen gutter-right"></div>
+          <div class="sheen cast"></div>
+        </div>
+
+        <!-- ОТКИДНОЙ ЛИСТ -->
+        <div class="leaf" id="leaf">
+          <div class="leaf-inner">
+
+            <div class="paper face face--inner">
+              <div class="slot" id="slot-left"><!-- содержимое левой страницы --></div>
+              <div class="sheen edge"></div>
+              <div class="sheen gutter-left"></div>
+            </div>
+
+            <div class="paper face face--cover">
+              <div class="slot" id="slot-cover"><!-- обложка --></div>
+              <div class="sheen edge"></div>
+              <div class="sheen glare"></div>
+            </div>
+
+          </div>
+        </div>
+
+        <div class="fold"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="hint" id="hint">потяните влево, чтобы открыть</p>
+
+<script>
+(() => {
+  const root  = document.documentElement;
+  const stage = document.getElementById('stage');
+  const hint  = document.getElementById('hint');
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const RATIO = 1.45;   // высота / ширина закрытой открытки
+
+  let halfW = 260, openScale = 1;
+
+  function layout(){
+    const vw = window.innerWidth;
+    const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+
+    // закрытая открытка: крупная, но с полями и местом под подсказку
+    halfW = Math.min(vw * 0.74, (vh - 130) / RATIO);
+    const cardH = halfW * RATIO;
+
+    // раскрытый разворот вдвое шире — ужимаем его до ширины экрана
+    openScale = Math.min(1, (vw - 24) / (halfW * 2));
+
+    root.style.setProperty('--half-w', halfW.toFixed(2) + 'px');
+    root.style.setProperty('--card-h', cardH.toFixed(2) + 'px');
+    render();
+  }
+
+  // --- состояние ---
+  let open = 0, vel = 0, target = 0;
+  let dragging = false, startX = 0, startOpen = 0, lastX = 0, lastT = 0, dragVel = 0;
+
+  // --- физика бумаги ---
+  const K = 78, C = 12.5, BOUNCE = -0.22;
+
+  function physics(dt){
+    vel += ((target - open) * K - vel * C) * dt;
+    open += vel * dt;
+    if (open < 0){ open = 0; vel *= BOUNCE; }
+    if (open > 1){ open = 1; vel *= BOUNCE; }
+  }
+
+  function render(){
+    const angle = 180 * (1 - open);
+    const bend  = Math.max(-7, Math.min(7, vel * 3.4));
+    const scale = 1 + (openScale - 1) * open;
+
+    root.style.setProperty('--angle', angle.toFixed(3) + 'deg');
+    root.style.setProperty('--open',  open.toFixed(4));
+    root.style.setProperty('--bend',  bend.toFixed(2) + 'deg');
+    root.style.setProperty('--scale', scale.toFixed(4));
+    // закрытая открытка лежит на правой половине — сдвигаем её к центру
+    root.style.setProperty('--shift', (-(1 - open) * halfW / 2).toFixed(2) + 'px');
+    root.style.setProperty('--lift',  (-open * 6).toFixed(2) + 'px');
+  }
+
+  let prev = performance.now();
+  (function frame(now){
+    let dt = Math.min((now - prev) / 1000, 1/30);
+    prev = now;
+    if (!dragging) physics(dt);
+    render();
+    requestAnimationFrame(frame);
+  })(prev);
+
+  function setTarget(v){
+    target = v;
+    if (reduced){ open = v; vel = 0; }
+    if (v === 1) hint.classList.add('gone');
+  }
+
+  // --- жест: тянем влево, чтобы открыть ---
+  function down(e){
+    dragging = true;
+    startX = lastX = e.clientX;
+    startOpen = open;
+    lastT = performance.now();
+    dragVel = 0;
+    stage.setPointerCapture(e.pointerId);
+  }
+
+  function move(e){
+    if (!dragging) return;
+    e.preventDefault();
+    const w = halfW * (1 + (openScale - 1) * open);
+    open = Math.max(0, Math.min(1, startOpen - (e.clientX - startX) / w));
+
+    const now = performance.now();
+    const dt = (now - lastT) / 1000;
+    if (dt > 0.004){
+      dragVel = (-(e.clientX - lastX) / w) / dt;
+      lastX = e.clientX;
+      lastT = now;
+    }
+    render();
+  }
+
+  function up(e){
+    if (!dragging) return;
+    dragging = false;
+    try { stage.releasePointerCapture(e.pointerId); } catch(_) {}
+    vel = Math.max(-9, Math.min(9, dragVel));
+    const moved = Math.abs(open - startOpen) > 0.02;
+    setTarget(moved ? ((open + vel * 0.14) > 0.5 ? 1 : 0) : (open > 0.5 ? 0 : 1));
+  }
+
+  stage.addEventListener('pointerdown', down);
+  stage.addEventListener('pointermove', move, {passive:false});
+  stage.addEventListener('pointerup', up);
+  stage.addEventListener('pointercancel', up);
+  stage.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); setTarget(target > 0.5 ? 0 : 1); }
+  });
+
+  document.addEventListener('gesturestart', e => e.preventDefault());
+  addEventListener('resize', layout);
+  addEventListener('orientationchange', () => setTimeout(layout, 250));
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', layout);
+
+  layout();
+})();
+</script>
+</body>
+</html>
